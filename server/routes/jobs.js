@@ -63,253 +63,297 @@ async function dispatchTechSmsIfAssigned(jobId, techId, customUrl) {
 
 // List jobs with query filters and full database status/technician counts
 router.get('/', (req, res) => {
-  const {
-    date, from_date, to_date, status, technician_id, assignment,
-    customer_id, treatment_id, vehicle_no, machine_name, search,
-    limit = 500, page = 1
-  } = req.query;
+  try {
+    const cleanParam = (val) => {
+      if (val === undefined || val === null || val === 'undefined' || val === 'null' || !String(val).trim()) return undefined;
+      return String(val).trim();
+    };
 
-  const today = formatDateColombo(new Date());
-  const tomorrowObj = new Date(today);
-  tomorrowObj.setDate(tomorrowObj.getDate() + 1);
-  const tomorrow = formatDateColombo(tomorrowObj);
+    const date = cleanParam(req.query.date);
+    const from_date = cleanParam(req.query.from_date);
+    const to_date = cleanParam(req.query.to_date);
+    const status = cleanParam(req.query.status);
+    const technician_id = cleanParam(req.query.technician_id);
+    const assignment = cleanParam(req.query.assignment);
+    const customer_id = cleanParam(req.query.customer_id);
+    const treatment_id = cleanParam(req.query.treatment_id);
+    const vehicle_no = cleanParam(req.query.vehicle_no);
+    const machine_name = cleanParam(req.query.machine_name);
+    const search = cleanParam(req.query.search);
+    const limit = req.query.limit;
+    const page = req.query.page;
 
-  const parsedLimit = Math.min(5000, Math.max(1, parseInt(limit, 10) || 500));
-  const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * parsedLimit;
+    const today = formatDateColombo(new Date());
+    const tomorrowObj = new Date(today);
+    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+    const tomorrow = formatDateColombo(tomorrowObj);
 
-  // 1. Base filters (Date, Range, Customer, Treatment, Vehicle, Machine, Search)
-  // Used for computing technician counts before technician_id is applied
-  const scopeWhere = ['1=1'];
-  const scopeParams = [];
+    const parsedLimit = Math.min(5000, Math.max(1, parseInt(limit, 10) || 500));
+    const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * parsedLimit;
 
-  if (date) {
-    scopeWhere.push(`(CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?`);
-    scopeParams.push(date);
-  }
-  if (from_date) {
-    scopeWhere.push('j.scheduled_date >= ?');
-    scopeParams.push(from_date);
-  }
-  if (to_date) {
-    scopeWhere.push('j.scheduled_date <= ?');
-    scopeParams.push(to_date);
-  }
-  if (customer_id) {
-    scopeWhere.push('j.customer_id = ?');
-    scopeParams.push(customer_id);
-  }
-  if (treatment_id) {
-    scopeWhere.push('j.treatment_id = ?');
-    scopeParams.push(treatment_id);
-  }
-  if (vehicle_no) {
-    scopeWhere.push('(j.vehicle_no = ? OR v.vehicle_number = ?)');
-    scopeParams.push(vehicle_no, vehicle_no);
-  }
-  if (machine_name) {
-    scopeWhere.push('(j.machine_name = ? OR m.machine_type = ?)');
-    scopeParams.push(machine_name, machine_name);
-  }
-  if (search && String(search).trim()) {
-    scopeWhere.push(`(
-      j.job_code LIKE ? OR
-      c.name LIKE ? OR
-      c.customer_code LIKE ? OR
-      c.phone LIKE ? OR
-      l.location_name LIKE ? OR
-      l.address LIKE ? OR
-      t.code LIKE ? OR
-      t.name LIKE ? OR
-      tech.full_name LIKE ? OR
-      j.vehicle_no LIKE ? OR
-      v.vehicle_number LIKE ? OR
-      j.machine_name LIKE ?
-    )`);
-    const q = `%${String(search).trim()}%`;
-    scopeParams.push(q, q, q, q, q, q, q, q, q, q, q, q);
-  }
+    // 1. Base filters (Date, Range, Customer, Treatment, Vehicle, Machine, Search)
+    // Used for computing technician counts before technician_id is applied
+    const scopeWhere = ['1=1'];
+    const scopeParams = [];
 
-  const baseFromJoin = `
-    FROM jobs j
-    JOIN customers c ON j.customer_id = c.id
-    LEFT JOIN customer_locations l ON j.location_id = l.id
-    JOIN treatments t ON j.treatment_id = t.id
-    LEFT JOIN staff tech ON j.technician_id = tech.id
-    LEFT JOIN vehicles v ON j.vehicle_id = v.id
-    LEFT JOIN machines m ON j.machine_id = m.id
-  `;
-
-  // Compute per-technician counts within the current date horizon scope
-  const techScopeWhere = ['1=1'];
-  const techScopeParams = [];
-  if (date) {
-    techScopeWhere.push(`(CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?`);
-    techScopeParams.push(date);
-  }
-  if (from_date) {
-    techScopeWhere.push('j.scheduled_date >= ?');
-    techScopeParams.push(from_date);
-  }
-  if (to_date) {
-    techScopeWhere.push('j.scheduled_date <= ?');
-    techScopeParams.push(to_date);
-  }
-
-  const techRows = db.prepare(`
-    SELECT j.technician_id, COUNT(*) as count
-    ${baseFromJoin}
-    WHERE ${techScopeWhere.join(' AND ')}
-    GROUP BY j.technician_id
-  `).all(...techScopeParams);
-
-  const byTechnician = {};
-  let scopeTotal = 0;
-  let scopeUnassigned = 0;
-  for (const r of techRows) {
-    scopeTotal += r.count;
-    if (r.technician_id) {
-      byTechnician[r.technician_id] = (byTechnician[r.technician_id] || 0) + r.count;
-    } else {
-      scopeUnassigned += r.count;
+    if (date) {
+      scopeWhere.push(`(CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?`);
+      scopeParams.push(date);
     }
-  }
-
-  // 2. Add Technician & Assignment filters for KPI status breakdown
-  const kpiWhere = [...scopeWhere];
-  const kpiParams = [...scopeParams];
-
-  if (technician_id) {
-    kpiWhere.push('j.technician_id = ?');
-    kpiParams.push(technician_id);
-  }
-  if (assignment === 'ASSIGNED') {
-    kpiWhere.push('j.technician_id IS NOT NULL');
-  } else if (assignment === 'UNASSIGNED') {
-    kpiWhere.push("j.technician_id IS NULL AND j.status != 'CANCELLED'");
-  }
-
-  const kpiSql = kpiWhere.join(' AND ');
-  const kpiRow = db.prepare(`
-    SELECT
-      COUNT(*) as total_all,
-      SUM(CASE WHEN j.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) as in_progress,
-      SUM(CASE WHEN j.status = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
-      SUM(CASE WHEN j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED') THEN 1 ELSE 0 END) as pending,
-      SUM(CASE WHEN j.status = 'ASSIGNED' THEN 1 ELSE 0 END) as assigned,
-      SUM(CASE WHEN j.status = 'TO_BE_DONE' THEN 1 ELSE 0 END) as to_be_done,
-      SUM(CASE WHEN j.status = 'CONFIRMED' THEN 1 ELSE 0 END) as confirmed,
-      SUM(CASE WHEN j.status = 'POSTPONED' THEN 1 ELSE 0 END) as postponed,
-      SUM(CASE WHEN j.status = 'CANCELLED' THEN 1 ELSE 0 END) as cancelled,
-      SUM(CASE WHEN j.technician_id IS NULL AND j.status != 'CANCELLED' THEN 1 ELSE 0 END) as unassigned,
-      SUM(CASE WHEN j.scheduled_date < ? AND j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED') THEN 1 ELSE 0 END) as overdue,
-      SUM(CASE WHEN j.scheduled_date >= ? AND j.customer_confirmation_status = 'UNCONFIRMED' AND j.status NOT IN ('COMPLETED', 'CANCELLED') THEN 1 ELSE 0 END) as unconfirmed
-    ${baseFromJoin}
-    WHERE ${kpiSql}
-  `).get(...kpiParams, today, today) || {};
-
-  // Global Today & Tomorrow counts (respecting technician_id only if explicitly in technician role)
-  const isTechRole = req.query.role === 'TECHNICIAN';
-  const dateCountWhere = (technician_id && isTechRole) ? 'WHERE j.technician_id = ? AND ' : 'WHERE ';
-  const dateCountParams = (technician_id && isTechRole) ? [technician_id] : [];
-  const todayTotalCount = db.prepare(`
-    SELECT COUNT(*) as count FROM jobs j
-    ${dateCountWhere} (CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?
-  `).get(...dateCountParams, today).count;
-
-  const tomorrowTotalCount = db.prepare(`
-    SELECT COUNT(*) as count FROM jobs j
-    ${dateCountWhere} (CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?
-  `).get(...dateCountParams, tomorrow).count;
-
-  const allDatesTotalCount = db.prepare(`
-    SELECT COUNT(*) as count FROM jobs j
-    ${(technician_id && isTechRole) ? 'WHERE j.technician_id = ?' : ''}
-  `).get(...dateCountParams).count;
-
-  // 3. Final Query Filters (including status)
-  const whereClauses = [...kpiWhere];
-  const params = [...kpiParams];
-
-  if (status) {
-    const st = String(status).toUpperCase();
-    if (st === 'PENDING') {
-      whereClauses.push("j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED')");
-    } else if (st === 'OVERDUE') {
-      whereClauses.push("j.scheduled_date < ? AND j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED')");
-      params.push(today);
-    } else if (st === 'UNCONFIRMED') {
-      whereClauses.push("j.scheduled_date >= ? AND j.customer_confirmation_status = 'UNCONFIRMED' AND j.status NOT IN ('COMPLETED', 'CANCELLED')");
-      params.push(today);
-    } else {
-      whereClauses.push('j.status = ?');
-      params.push(st);
+    if (from_date) {
+      scopeWhere.push('j.scheduled_date >= ?');
+      scopeParams.push(from_date);
     }
+    if (to_date) {
+      scopeWhere.push('j.scheduled_date <= ?');
+      scopeParams.push(to_date);
+    }
+    if (customer_id) {
+      scopeWhere.push('j.customer_id = ?');
+      scopeParams.push(customer_id);
+    }
+    if (treatment_id) {
+      scopeWhere.push('j.treatment_id = ?');
+      scopeParams.push(treatment_id);
+    }
+    if (vehicle_no) {
+      scopeWhere.push('(j.vehicle_no = ? OR v.vehicle_number = ?)');
+      scopeParams.push(vehicle_no, vehicle_no);
+    }
+    if (machine_name) {
+      scopeWhere.push('(j.machine_name = ? OR m.machine_type = ?)');
+      scopeParams.push(machine_name, machine_name);
+    }
+    if (search && String(search).trim()) {
+      scopeWhere.push(`(
+        j.job_code LIKE ? OR
+        c.name LIKE ? OR
+        c.customer_code LIKE ? OR
+        c.phone LIKE ? OR
+        l.location_name LIKE ? OR
+        l.address LIKE ? OR
+        t.code LIKE ? OR
+        t.name LIKE ? OR
+        tech.full_name LIKE ? OR
+        j.vehicle_no LIKE ? OR
+        v.vehicle_number LIKE ? OR
+        j.machine_name LIKE ?
+      )`);
+      const q = `%${String(search).trim()}%`;
+      scopeParams.push(q, q, q, q, q, q, q, q, q, q, q, q);
+    }
+
+    const baseFromJoin = `
+      FROM jobs j
+      JOIN customers c ON j.customer_id = c.id
+      LEFT JOIN customer_locations l ON j.location_id = l.id
+      JOIN treatments t ON j.treatment_id = t.id
+      LEFT JOIN staff tech ON j.technician_id = tech.id
+      LEFT JOIN vehicles v ON j.vehicle_id = v.id
+      LEFT JOIN machines m ON j.machine_id = m.id
+    `;
+
+    // Compute per-technician counts within the current date horizon scope
+    const techScopeWhere = ['1=1'];
+    const techScopeParams = [];
+    if (date) {
+      techScopeWhere.push(`(CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?`);
+      techScopeParams.push(date);
+    }
+    if (from_date) {
+      techScopeWhere.push('j.scheduled_date >= ?');
+      techScopeParams.push(from_date);
+    }
+    if (to_date) {
+      techScopeWhere.push('j.scheduled_date <= ?');
+      techScopeParams.push(to_date);
+    }
+
+    const activeTechnicians = db.prepare("SELECT id, full_name, username FROM staff WHERE role = 'TECHNICIAN' AND is_active = 1").all();
+    const byTechnician = {};
+
+    for (const tech of activeTechnicians) {
+      const cleanName = tech.full_name ? tech.full_name.replace(/\s*\(.*?\)\s*/g, '').trim() : '';
+      const tCount = db.prepare(`
+        SELECT COUNT(*) as count
+        ${baseFromJoin}
+        WHERE ${techScopeWhere.join(' AND ')}
+        AND (
+          j.technician_id = ? OR
+          j.team_members LIKE ? OR
+          j.team_members LIKE ? OR
+          j.team_members LIKE ?
+        )
+      `).get(...techScopeParams, tech.id, `%${tech.full_name}%`, `%${cleanName}%`, `%${tech.username}%`).count;
+      byTechnician[tech.id] = tCount;
+    }
+
+    const scopeUnassigned = db.prepare(`
+      SELECT COUNT(*) as count
+      ${baseFromJoin}
+      WHERE ${techScopeWhere.join(' AND ')}
+      AND j.technician_id IS NULL AND (j.team_members IS NULL OR trim(j.team_members) = '') AND j.status != 'CANCELLED'
+    `).get(...techScopeParams).count;
+
+    const scopeTotal = db.prepare(`
+      SELECT COUNT(*) as count
+      ${baseFromJoin}
+      WHERE ${techScopeWhere.join(' AND ')}
+    `).get(...techScopeParams).count;
+
+    // 2. Add Technician & Assignment filters for KPI status breakdown
+    const kpiWhere = [...scopeWhere];
+    const kpiParams = [];
+
+    if (technician_id) {
+      const targetTech = db.prepare('SELECT id, full_name, username FROM staff WHERE id = ?').get(technician_id);
+      if (targetTech) {
+        const cleanName = targetTech.full_name ? targetTech.full_name.replace(/\s*\(.*?\)\s*/g, '').trim() : '';
+        kpiWhere.push('(j.technician_id = ? OR j.team_members LIKE ? OR j.team_members LIKE ? OR j.team_members LIKE ?)');
+        kpiParams.push(technician_id, `%${targetTech.full_name}%`, `%${cleanName}%`, `%${targetTech.username}%`);
+      } else {
+        kpiWhere.push('j.technician_id = ?');
+        kpiParams.push(technician_id);
+      }
+    }
+    if (assignment === 'ASSIGNED') {
+      kpiWhere.push("(j.technician_id IS NOT NULL OR (j.team_members IS NOT NULL AND trim(j.team_members) != ''))");
+    } else if (assignment === 'UNASSIGNED') {
+      kpiWhere.push("(j.technician_id IS NULL AND (j.team_members IS NULL OR trim(j.team_members) = '') AND j.status != 'CANCELLED')");
+    }
+
+    // Combine scopeParams and technician/assignment params for kpi query
+    const allKpiFilterParams = [...scopeParams, ...kpiParams];
+    const kpiSql = kpiWhere.join(' AND ');
+    const kpiRow = db.prepare(`
+      SELECT
+        COUNT(*) as total_all,
+        SUM(CASE WHEN j.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) as in_progress,
+        SUM(CASE WHEN j.status = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED', 'PENDING') AND j.status NOT IN ('COMPLETED', 'CANCELLED') THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN j.status = 'ASSIGNED' OR (j.technician_id IS NOT NULL AND j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED')) THEN 1 ELSE 0 END) as assigned,
+        SUM(CASE WHEN (j.status = 'TO_BE_DONE' OR j.status = 'PENDING') AND j.technician_id IS NULL THEN 1 ELSE 0 END) as to_be_done,
+        SUM(CASE WHEN j.status = 'CONFIRMED' THEN 1 ELSE 0 END) as confirmed,
+        SUM(CASE WHEN j.status = 'POSTPONED' THEN 1 ELSE 0 END) as postponed,
+        SUM(CASE WHEN j.status = 'CANCELLED' THEN 1 ELSE 0 END) as cancelled,
+        SUM(CASE WHEN j.technician_id IS NULL AND (j.team_members IS NULL OR trim(j.team_members) = '') AND j.status != 'CANCELLED' THEN 1 ELSE 0 END) as unassigned,
+        SUM(CASE WHEN j.scheduled_date < ? AND j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED', 'PENDING') THEN 1 ELSE 0 END) as overdue,
+        SUM(CASE WHEN j.scheduled_date >= ? AND j.customer_confirmation_status = 'UNCONFIRMED' AND j.status NOT IN ('COMPLETED', 'CANCELLED') THEN 1 ELSE 0 END) as unconfirmed
+      ${baseFromJoin}
+      WHERE ${kpiSql}
+    `).get(today, today, ...allKpiFilterParams) || {};
+
+    // Global Today & Tomorrow counts (respecting technician_id only if explicitly in technician role)
+    const isTechRole = req.query.role === 'TECHNICIAN';
+    const dateCountWhere = (technician_id && isTechRole) ? 'WHERE j.technician_id = ? AND ' : 'WHERE ';
+    const dateCountParams = (technician_id && isTechRole) ? [technician_id] : [];
+    const todayTotalCount = db.prepare(`
+      SELECT COUNT(*) as count FROM jobs j
+      ${dateCountWhere} (CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?
+    `).get(...dateCountParams, today).count;
+
+    const tomorrowTotalCount = db.prepare(`
+      SELECT COUNT(*) as count FROM jobs j
+      ${dateCountWhere} (CASE WHEN j.status = 'POSTPONED' AND j.postponed_to_date IS NOT NULL AND j.postponed_to_date != '' THEN substr(j.postponed_to_date, 1, 10) ELSE substr(j.scheduled_date, 1, 10) END) = ?
+    `).get(...dateCountParams, tomorrow).count;
+
+    const allDatesTotalCount = db.prepare(`
+      SELECT COUNT(*) as count FROM jobs j
+      ${(technician_id && isTechRole) ? 'WHERE j.technician_id = ?' : ''}
+    `).get(...dateCountParams).count;
+
+    // 3. Final Query Filters (including status)
+    const whereClauses = [...kpiWhere];
+    const params = [...allKpiFilterParams];
+
+    if (status) {
+      const st = String(status).toUpperCase();
+      if (st === 'PENDING') {
+        whereClauses.push("j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED', 'PENDING')");
+      } else if (st === 'ASSIGNED') {
+        whereClauses.push("(j.status = 'ASSIGNED' OR (j.technician_id IS NOT NULL AND j.status NOT IN ('COMPLETED', 'CANCELLED')))");
+      } else if (st === 'TO_BE_DONE') {
+        whereClauses.push("(j.status = 'TO_BE_DONE' OR (j.status = 'PENDING' AND j.technician_id IS NULL))");
+      } else if (st === 'OVERDUE') {
+        whereClauses.push("j.scheduled_date < ? AND j.status IN ('TO_BE_DONE', 'ASSIGNED', 'CONFIRMED', 'PENDING')");
+        params.push(today);
+      } else if (st === 'UNCONFIRMED') {
+        whereClauses.push("j.scheduled_date >= ? AND j.customer_confirmation_status = 'UNCONFIRMED' AND j.status NOT IN ('COMPLETED', 'CANCELLED')");
+        params.push(today);
+      } else {
+        whereClauses.push('j.status = ?');
+        params.push(st);
+      }
+    }
+
+    const whereSql = whereClauses.join(' AND ');
+
+    const total = db.prepare(`
+      SELECT COUNT(*) as count
+      ${baseFromJoin}
+      WHERE ${whereSql}
+    `).get(...params).count;
+
+    const orderByClause = (status && String(status).toUpperCase() === 'COMPLETED')
+      ? 'ORDER BY COALESCE(j.actual_end_time, j.completed_at, j.scheduled_date) DESC, j.id DESC'
+      : `ORDER BY CASE WHEN j.status = 'IN_PROGRESS' THEN 0 ELSE 1 END ASC, j.scheduled_date ASC, j.scheduled_time ASC, j.id ASC`;
+
+    const jobs = db.prepare(`
+      SELECT j.*,
+             c.name as customer_name, c.customer_code, c.phone as customer_phone,
+             c.contact_person, c.special_instructions,
+             l.location_name, l.address as location_address, l.latitude, l.longitude,
+             t.code as treatment_code, t.name as treatment_name, t.color_hex as treatment_color,
+             tech.full_name as technician_name, tech.phone as technician_phone,
+             sales.full_name as salesman_name,
+             r.frequency as recurring_frequency,
+             v.vehicle_type, v.vehicle_number,
+             m.machine_type
+      FROM jobs j
+      JOIN customers c ON j.customer_id = c.id
+      LEFT JOIN customer_locations l ON j.location_id = l.id
+      JOIN treatments t ON j.treatment_id = t.id
+      LEFT JOIN staff tech ON j.technician_id = tech.id
+      LEFT JOIN staff sales ON j.salesman_id = sales.id
+      LEFT JOIN recurring_services r ON j.recurring_service_id = r.id
+      LEFT JOIN vehicles v ON j.vehicle_id = v.id
+      LEFT JOIN machines m ON j.machine_id = m.id
+      WHERE ${whereSql}
+      ${orderByClause}
+      LIMIT ? OFFSET ?
+    `).all(...params, parsedLimit, offset);
+
+    res.json({
+      success: true,
+      total,
+      page: parseInt(page, 10),
+      limit: parsedLimit,
+      counts: {
+        all: kpiRow.total_all || 0,
+        in_progress: kpiRow.in_progress || 0,
+        completed: kpiRow.completed || 0,
+        pending: kpiRow.pending || 0,
+        assigned: kpiRow.assigned || 0,
+        to_be_done: kpiRow.to_be_done || 0,
+        confirmed: kpiRow.confirmed || 0,
+        postponed: kpiRow.postponed || 0,
+        cancelled: kpiRow.cancelled || 0,
+        unassigned: kpiRow.unassigned || 0,
+        overdue: kpiRow.overdue || 0,
+        unconfirmed: kpiRow.unconfirmed || 0,
+        scope_total: scopeTotal,
+        scope_unassigned: scopeUnassigned,
+        today_jobs: todayTotalCount,
+        tomorrow_jobs: tomorrowTotalCount,
+        all_dates_jobs: allDatesTotalCount,
+        by_technician: byTechnician
+      },
+      jobs
+    });
+  } catch (err) {
+    console.error('Error in GET /api/jobs:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
-
-  const whereSql = whereClauses.join(' AND ');
-
-  const total = db.prepare(`
-    SELECT COUNT(*) as count
-    ${baseFromJoin}
-    WHERE ${whereSql}
-  `).get(...params).count;
-
-  const orderByClause = (status && String(status).toUpperCase() === 'COMPLETED')
-    ? 'ORDER BY COALESCE(j.actual_end_time, j.completed_at, j.scheduled_date) DESC, j.id DESC'
-    : `ORDER BY CASE WHEN j.status = 'IN_PROGRESS' THEN 0 ELSE 1 END ASC, j.scheduled_date ASC, j.scheduled_time ASC, j.id ASC`;
-
-  const jobs = db.prepare(`
-    SELECT j.*,
-           c.name as customer_name, c.customer_code, c.phone as customer_phone,
-           c.contact_person, c.special_instructions,
-           l.location_name, l.address as location_address, l.latitude, l.longitude,
-           t.code as treatment_code, t.name as treatment_name, t.color_hex as treatment_color,
-           tech.full_name as technician_name, tech.phone as technician_phone,
-           sales.full_name as salesman_name,
-           r.frequency as recurring_frequency,
-           v.vehicle_type, v.vehicle_number,
-           m.machine_type
-    FROM jobs j
-    JOIN customers c ON j.customer_id = c.id
-    LEFT JOIN customer_locations l ON j.location_id = l.id
-    JOIN treatments t ON j.treatment_id = t.id
-    LEFT JOIN staff tech ON j.technician_id = tech.id
-    LEFT JOIN staff sales ON j.salesman_id = sales.id
-    LEFT JOIN recurring_services r ON j.recurring_service_id = r.id
-    LEFT JOIN vehicles v ON j.vehicle_id = v.id
-    LEFT JOIN machines m ON j.machine_id = m.id
-    WHERE ${whereSql}
-    ${orderByClause}
-    LIMIT ? OFFSET ?
-  `).all(...params, parsedLimit, offset);
-
-  res.json({
-    success: true,
-    total,
-    page: parseInt(page, 10),
-    limit: parsedLimit,
-    counts: {
-      all: kpiRow.total_all || 0,
-      in_progress: kpiRow.in_progress || 0,
-      completed: kpiRow.completed || 0,
-      pending: kpiRow.pending || 0,
-      assigned: kpiRow.assigned || 0,
-      to_be_done: kpiRow.to_be_done || 0,
-      confirmed: kpiRow.confirmed || 0,
-      postponed: kpiRow.postponed || 0,
-      cancelled: kpiRow.cancelled || 0,
-      unassigned: kpiRow.unassigned || 0,
-      overdue: kpiRow.overdue || 0,
-      unconfirmed: kpiRow.unconfirmed || 0,
-      scope_total: scopeTotal,
-      scope_unassigned: scopeUnassigned,
-      today_jobs: todayTotalCount,
-      tomorrow_jobs: tomorrowTotalCount,
-      all_dates_jobs: allDatesTotalCount,
-      by_technician: byTechnician
-    },
-    jobs
-  });
 });
 
 // Get job details with photos and logs

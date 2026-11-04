@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Users, MapPin, Phone, Mail, Building, Edit, X, Check, FileText, Compass, AlertCircle } from 'lucide-react';
+import { Users, MapPin, Phone, Mail, Building, Edit, X, Check, FileText, Compass, AlertCircle, Trash2 } from 'lucide-react';
 import { updateCustomer } from '../api';
 import GpsCoordinatePicker from './GpsCoordinatePicker';
 
-export default function EditCustomerModal({ isOpen, customer, onClose, onCustomerUpdated }) {
+export default function EditCustomerModal({ isOpen, customer, onClose, onCustomerUpdated, onDelete }) {
   const [formData, setFormData] = useState({
     name: '',
     contact_person: '',
@@ -262,24 +262,40 @@ export default function EditCustomerModal({ isOpen, customer, onClose, onCustome
         </form>
 
         {/* Modal Footer */}
-        <div className="p-5 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-slate-600 hover:text-slate-800 font-semibold text-xs rounded-xl hover:bg-slate-200 transition"
-          >
-            Cancel
-          </button>
+        <div className="p-5 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onDelete(customer);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Delete Customer</span>
+            </button>
+          ) : <div />}
 
-          <button
-            type="submit"
-            form="edit-customer-form"
-            disabled={loading}
-            className="flex items-center gap-1.5 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-200 disabled:opacity-50 transition"
-          >
-            <Check className="w-4 h-4" />
-            <span>{loading ? 'Saving Changes...' : 'Save Customer Changes'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 hover:text-slate-800 font-semibold text-xs rounded-xl hover:bg-slate-200 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              form="edit-customer-form"
+              disabled={loading}
+              className="flex items-center gap-1.5 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-200 disabled:opacity-50 transition cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              <span>{loading ? 'Saving Changes...' : 'Save Customer Changes'}</span>
+            </button>
+          </div>
         </div>
 
       </div>

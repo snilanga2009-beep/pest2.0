@@ -340,4 +340,37 @@ router.post('/:id/locations', (req, res) => {
   }
 });
 
+// Delete customer and associated cascade records
+router.delete('/:id', (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+    if (!cust) {
+      return res.status(404).json({ success: false, error: 'Customer not found' });
+    }
+
+    db.transaction(() => {
+      // 1. Delete photos & logs for jobs belonging to this customer
+      const jobs = db.prepare('SELECT id FROM jobs WHERE customer_id = ?').all(id);
+      for (const j of jobs) {
+        db.prepare('DELETE FROM job_photos WHERE job_id = ?').run(j.id);
+        db.prepare('DELETE FROM job_logs WHERE job_id = ?').run(j.id);
+      }
+      // 2. Delete jobs
+      db.prepare('DELETE FROM jobs WHERE customer_id = ?').run(id);
+      // 3. Delete recurring services
+      db.prepare('DELETE FROM recurring_services WHERE customer_id = ?').run(id);
+      // 4. Delete customer locations
+      db.prepare('DELETE FROM customer_locations WHERE customer_id = ?').run(id);
+      // 5. Delete customer
+      db.prepare('DELETE FROM customers WHERE id = ?').run(id);
+    })();
+
+    res.json({ success: true, message: `Customer "${cust.name}" deleted successfully` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

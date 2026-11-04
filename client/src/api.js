@@ -2,6 +2,16 @@
 
 const BASE_URL = '/api';
 
+export function toQueryString(params = {}) {
+  const clean = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '' && value !== 'undefined' && value !== 'null') {
+      clean[key] = value;
+    }
+  }
+  return new URLSearchParams(clean).toString();
+}
+
 export async function fetchJson(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
   const headers = {
@@ -37,15 +47,16 @@ export const getDashboardStats = (date) => fetchJson(`/dashboard${date ? `?date=
 
 // Customers
 export const getCustomers = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
+  const q = toQueryString(params);
   return fetchJson(`/customers?${q}`);
 };
 export const getCustomerById = (id, params = {}) => {
-  const q = new URLSearchParams(params).toString();
+  const q = toQueryString(params);
   return fetchJson(`/customers/${id}${q ? `?${q}` : ''}`);
 };
 export const createCustomer = (data) => fetchJson('/customers', { method: 'POST', body: data });
 export const updateCustomer = (id, data) => fetchJson(`/customers/${id}`, { method: 'PUT', body: data });
+export const deleteCustomer = (id) => fetchJson(`/customers/${id}`, { method: 'DELETE' });
 export const addCustomerLocation = (id, data) => fetchJson(`/customers/${id}/locations`, { method: 'POST', body: data });
 
 // Treatments
@@ -55,7 +66,7 @@ export const updateTreatment = (id, data) => fetchJson(`/treatments/${id}`, { me
 
 // Staff
 export const getStaff = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
+  const q = toQueryString(params);
   return fetchJson(`/staff?${q}`);
 };
 export const createStaff = (data) => fetchJson('/staff', { method: 'POST', body: data });
@@ -64,7 +75,7 @@ export const deleteStaff = (id) => fetchJson(`/staff/${id}`, { method: 'DELETE' 
 
 // Recurring Services
 export const getRecurringServices = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
+  const q = toQueryString(params);
   return fetchJson(`/recurring?${q}`);
 };
 export const createRecurringService = (data) => fetchJson('/recurring', { method: 'POST', body: data });
@@ -72,13 +83,13 @@ export const updateRecurringService = (id, data) => fetchJson(`/recurring/${id}`
 export const deleteRecurringService = (id, cancelFutureJobs = true) => fetchJson(`/recurring/${id}?cancel_future_jobs=${cancelFutureJobs}`, { method: 'DELETE' });
 export const generateRecurringSchedule = (id, horizonMonths = 3) => fetchJson(`/recurring/${id}/generate-schedule`, { method: 'POST', body: { horizon_months: horizonMonths } });
 export const previewNextDate = (baseDate, frequency, preferredDay) => {
-  const q = new URLSearchParams({ base_date: baseDate, frequency, preferred_day: preferredDay || '' }).toString();
+  const q = toQueryString({ base_date: baseDate, frequency, preferred_day: preferredDay || '' });
   return fetchJson(`/recurring/calculate-next?${q}`);
 };
 
 // Jobs
 export const getJobs = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
+  const q = toQueryString(params);
   return fetchJson(`/jobs?${q}`);
 };
 export const getJobById = (id) => fetchJson(`/jobs/${id}`);
@@ -93,13 +104,13 @@ export const cancelJob = (id, reason) => fetchJson(`/jobs/${id}/cancel`, { metho
 
 // Calendar
 export const getCalendarEvents = (params = {}) => {
-  const q = new URLSearchParams(params).toString();
+  const q = toQueryString(params);
   return fetchJson(`/calendar/events?${q}`);
 };
 
 // Reports
 export const getReport = (type, params = {}) => {
-  const q = new URLSearchParams(params).toString();
+  const q = toQueryString(params);
   return fetchJson(`/reports/${type}?${q}`);
 };
 

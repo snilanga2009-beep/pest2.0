@@ -458,11 +458,20 @@ export default function JobsView({
 
       // Technician filter
       if (!isTechnicianMode && technicianFilter) {
-        if (String(j.technician_id || j.assigned_technician_id || '') !== String(technicianFilter)) return false;
+        const staffMember = staff.find(s => String(s.id) === String(technicianFilter));
+        const techName = staffMember?.full_name?.toLowerCase();
+        const techCleanName = staffMember?.full_name ? staffMember.full_name.replace(/\s*\(.*?\)\s*/g, '').trim().toLowerCase() : '';
+        const techUsername = staffMember?.username?.toLowerCase();
+        const matchesLead = String(j.technician_id || j.assigned_technician_id || '') === String(technicianFilter);
+        const matchesTeam = Boolean(techName && j.team_members && j.team_members.toLowerCase().includes(techName));
+        const matchesCleanTeam = Boolean(techCleanName && j.team_members && j.team_members.toLowerCase().includes(techCleanName));
+        const matchesUsername = Boolean(techUsername && j.team_members && j.team_members.toLowerCase().includes(techUsername));
+        const matchesWorkers = Boolean(j.workers_info && String(j.workers_info).includes(String(technicianFilter)));
+        if (!matchesLead && !matchesTeam && !matchesCleanTeam && !matchesUsername && !matchesWorkers) return false;
       }
 
       // Assignment status filter (Assigned vs Unassigned)
-      const hasTech = Boolean(j.technician_id || j.assigned_technician_id || j.technician_name);
+      const hasTech = Boolean(j.technician_id || j.assigned_technician_id || j.technician_name || (j.team_members && j.team_members.trim()));
       if (assignmentFilter === 'ASSIGNED' && !hasTech) return false;
       if (assignmentFilter === 'UNASSIGNED' && hasTech) return false;
 
@@ -490,7 +499,10 @@ export default function JobsView({
         } else if (statusFilter === 'PENDING') {
           if (!['TO_BE_DONE', 'ASSIGNED', 'CONFIRMED', 'SCHEDULED', 'PENDING'].includes(j.status)) return false;
         } else if (statusFilter === 'ASSIGNED') {
-          if (j.status !== 'ASSIGNED' && j.status !== 'SCHEDULED') return false;
+          const isAssigned = j.status === 'ASSIGNED' || j.status === 'SCHEDULED' || (j.technician_id && !['COMPLETED', 'CANCELLED'].includes(j.status)) || (j.team_members && j.team_members.trim() && !['COMPLETED', 'CANCELLED'].includes(j.status));
+          if (!isAssigned) return false;
+        } else if (statusFilter === 'TO_BE_DONE') {
+          if (j.status !== 'TO_BE_DONE' && j.status !== 'PENDING') return false;
         } else if (j.status !== statusFilter) {
           return false;
         }
@@ -1090,7 +1102,16 @@ export default function JobsView({
               {staff.filter(s => s.role === 'TECHNICIAN' && s.is_active !== 0).map(tech => {
                 const count = kpiStats.byTechnician[tech.id] !== undefined
                   ? kpiStats.byTechnician[tech.id]
-                  : rawJobs.filter(j => String(j.technician_id || j.assigned_technician_id || '') === String(tech.id)).length;
+                  : rawJobs.filter(j => {
+                      const techName = tech.full_name?.toLowerCase();
+                      const cleanTechName = tech.full_name ? tech.full_name.replace(/\s*\(.*?\)\s*/g, '').trim().toLowerCase() : '';
+                      const techUsername = tech.username?.toLowerCase();
+                      const matchesLead = String(j.technician_id || j.assigned_technician_id || '') === String(tech.id);
+                      const matchesTeam = Boolean(techName && j.team_members && j.team_members.toLowerCase().includes(techName));
+                      const matchesClean = Boolean(cleanTechName && j.team_members && j.team_members.toLowerCase().includes(cleanTechName));
+                      const matchesUsername = Boolean(techUsername && j.team_members && j.team_members.toLowerCase().includes(techUsername));
+                      return matchesLead || matchesTeam || matchesClean || matchesUsername;
+                    }).length;
                 const isSelected = String(technicianFilter) === String(tech.id);
                 return (
                   <button
@@ -1519,7 +1540,7 @@ export default function JobsView({
                         <Lock className="w-3 h-3 text-[#6D28D9]" />
                         <span>Work Tomorrow Only</span>
                       </button>
-                    ) : (
+                    ) : isTechnicianMode ? (
                       job.status !== 'COMPLETED' && job.status !== 'CANCELLED' && (
                         job.status === 'IN_PROGRESS' ? (
                           <button
@@ -1542,7 +1563,7 @@ export default function JobsView({
                           </button>
                         )
                       )
-                    )}
+                    ) : null}
                   </div>
                 </div>
               );

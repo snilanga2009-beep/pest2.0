@@ -4,7 +4,7 @@ import {
   Calendar, User, AlertTriangle, ArrowLeft, PenTool,
   Check, X, RefreshCw, Smartphone, Download, Sparkles,
   HardHat, Users, LogOut, Award, Search, Lock, Briefcase,
-  Truck, Wrench, Timer, Printer, Share2
+  Truck, Wrench, Timer, Printer, Share2, CheckCircle
 } from 'lucide-react';
 import { getJobs, getJobById, startJob, completeJob, postponeJob, getStaff } from '../api';
 import { downloadJobPdfReport, printJobReport, shareJobOnWhatsApp } from '../utils/jobExportUtils';
@@ -1457,27 +1457,40 @@ export default function MobileTechnicianView({
                             </button>
                           </div>
 
-                          {/* Primary Workflow Button */}
-                          {job.status === 'IN_PROGRESS' ? (
-                            <button
-                              onClick={(e) => handleOpenComplete(job, e)}
-                              className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-full text-xs shadow-md shadow-emerald-200 transition active:scale-98 cursor-pointer"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>FINISH WORK &amp; COMPLETE JOB</span>
-                            </button>
-                          ) : job.status !== 'COMPLETED' ? (
-                            <button
-                              onClick={(e) => handleStartJob(job.id, e, job)}
-                              className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black rounded-full text-xs shadow-md shadow-orange-200 transition active:scale-98 cursor-pointer"
-                            >
-                              <Play className="w-4 h-4 text-white" />
-                              <span>START JOB NOW (START TIMER)</span>
-                            </button>
+                          {/* Primary Workflow Button (Only for field Technicians; Managers only view job list & operational details) */}
+                          {!isManagerApp ? (
+                            job.status === 'IN_PROGRESS' ? (
+                              <button
+                                onClick={(e) => handleOpenComplete(job, e)}
+                                className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-full text-xs shadow-md shadow-emerald-200 transition active:scale-98 cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>FINISH WORK &amp; COMPLETE JOB</span>
+                              </button>
+                            ) : job.status !== 'COMPLETED' ? (
+                              <button
+                                onClick={(e) => handleStartJob(job.id, e, job)}
+                                className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black rounded-full text-xs shadow-md shadow-orange-200 transition active:scale-98 cursor-pointer"
+                              >
+                                <Play className="w-4 h-4 text-white" />
+                                <span>START JOB NOW (START TIMER)</span>
+                              </button>
+                            ) : (
+                              <div className="py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-full text-xs text-center border border-emerald-200 flex items-center justify-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                <span>COMPLETED &amp; NEXT SCHEDULED</span>
+                              </div>
+                            )
                           ) : (
-                            <div className="py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-full text-xs text-center border border-emerald-200 flex items-center justify-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                              <span>COMPLETED &amp; NEXT SCHEDULED</span>
+                            <div className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-xl text-center flex items-center justify-between text-xs">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Status:</span>
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                job.status === 'IN_PROGRESS' ? 'bg-orange-100 text-orange-800' :
+                                job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
+                                job.status === 'ASSIGNED' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {job.status.replace(/_/g, ' ')}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -1880,8 +1893,8 @@ export default function MobileTechnicianView({
       {activeJob && (
         <div className="p-3 sm:p-4 space-y-3.5 pb-36 sm:pb-40">
           {/* Top Quick Action Banner so technicians can Start or Finish immediately without scrolling */}
-          {activeJob.status !== 'COMPLETED' && (
-            !isManagerApp && isJobScheduledAfterToday(activeJob) ? (
+          {!isManagerApp && activeJob.status !== 'COMPLETED' && (
+            isJobScheduledAfterToday(activeJob) ? (
               <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-2.5 text-xs text-amber-900">
                 <Lock className="w-4 h-4 text-amber-700 shrink-0" />
                 <span>Job locked until scheduled date: <strong>{getJobEffectiveDate(activeJob)}</strong></span>
@@ -2105,55 +2118,12 @@ export default function MobileTechnicianView({
 
           {/* Action Buttons or Completed Full Summary for Details View */}
           <div className="space-y-2.5">
-            {activeJob.status !== 'COMPLETED' ? (
-              !isManagerApp && isJobScheduledAfterToday(activeJob) ? (
-                <div className="p-4 bg-indigo-50 rounded-2xl border-2 border-indigo-200 space-y-3 text-xs">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center shrink-0">
-                      <Lock className="w-5 h-5 text-amber-700" />
-                    </div>
-                    <div>
-                      <div className="font-black text-indigo-950 text-sm">
-                        Scheduled for {getJobEffectiveDate(activeJob)}
-                      </div>
-                      <p className="text-indigo-800 text-[11px] mt-0.5 leading-relaxed">
-                        This job is scheduled for {getJobEffectiveDate(activeJob)}.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {activeJob.status !== 'IN_PROGRESS' ? (
-                    <button
-                      onClick={(e) => handleStartJob(activeJob.id, e, activeJob)}
-                      className="w-full py-4 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30 text-sm active:scale-98 transition cursor-pointer min-h-[50px]"
-                    >
-                      <Play className="w-5 h-5 text-white" /> START JOB NOW (START TIMER)
-                    </button>
-                  ) : (
-                    <button
-                      onClick={(e) => handleOpenComplete(activeJob, e)}
-                      className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 text-sm cursor-pointer min-h-[50px]"
-                    >
-                      <CheckCircle2 className="w-5 h-5" /> FINISH WORK &amp; COMPLETE JOB
-                    </button>
-                  )}
-
-                  <button
-                    onClick={(e) => handleOpenPostpone(activeJob, e)}
-                    className="w-full py-3.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl flex items-center justify-center gap-2 cursor-pointer transition min-h-[44px]"
-                  >
-                    <Clock className="w-4 h-4" /> POSTPONE / RESCHEDULE
-                  </button>
-                </>
-              )
-            ) : (
+            {activeJob.status === 'COMPLETED' ? (
               <div className="p-4 bg-emerald-50 rounded-3xl border-2 border-emerald-200 space-y-3 text-xs">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2 font-black text-emerald-900 text-sm">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    <span>Job Finished &amp; Completed Successfully</span>
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span>{isManagerApp ? 'Manager Record • Job Completed' : 'Job Finished & Completed Successfully'}</span>
                   </div>
                   <span className="px-2.5 py-1 rounded-lg bg-white text-emerald-800 border border-emerald-200 font-mono font-black text-[11px]">
                     Date: {String(activeJob.scheduled_date || activeJob.completed_at || '').substring(0, 10)}
@@ -2174,6 +2144,66 @@ export default function MobileTechnicianView({
                   </div>
                 )}
               </div>
+            ) : isManagerApp ? (
+              /* MANAGER APP: Only display job info summary, no technician action buttons */
+              <div className="p-4 bg-purple-50/70 rounded-2xl border border-purple-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#4C1D95] uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#6D28D9] shrink-0" />
+                    <span>Manager Overview • Job Status</span>
+                  </span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                    activeJob.status === 'IN_PROGRESS' ? 'bg-orange-100 text-orange-800' :
+                    activeJob.status === 'ASSIGNED' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'
+                  }`}>
+                    {activeJob.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                <p className="text-slate-600 text-[11px]">
+                  Job start, completion, and sign-off are handled by the assigned field technician.
+                </p>
+              </div>
+            ) : isJobScheduledAfterToday(activeJob) ? (
+              <div className="p-4 bg-indigo-50 rounded-2xl border-2 border-indigo-200 space-y-3 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center shrink-0">
+                    <Lock className="w-5 h-5 text-amber-700" />
+                  </div>
+                  <div>
+                    <div className="font-black text-indigo-950 text-sm">
+                      Scheduled for {getJobEffectiveDate(activeJob)}
+                    </div>
+                    <p className="text-indigo-800 text-[11px] mt-0.5 leading-relaxed">
+                      This job is scheduled for {getJobEffectiveDate(activeJob)}.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {activeJob.status !== 'IN_PROGRESS' ? (
+                  <button
+                    onClick={(e) => handleStartJob(activeJob.id, e, activeJob)}
+                    className="w-full py-4 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-orange-600/30 text-sm active:scale-98 transition cursor-pointer min-h-[50px]"
+                  >
+                    <Play className="w-5 h-5 text-white" /> START JOB NOW (START TIMER)
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => handleOpenComplete(activeJob, e)}
+                    className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 text-sm cursor-pointer min-h-[50px]"
+                  >
+                    <CheckCircle2 className="w-5 h-5" /> FINISH WORK &amp; COMPLETE JOB
+                  </button>
+                )}
+
+                <button
+                  onClick={(e) => handleOpenPostpone(activeJob, e)}
+                  className="w-full py-3.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl flex items-center justify-center gap-2 cursor-pointer transition min-h-[44px]"
+                >
+                  <Clock className="w-4 h-4" /> POSTPONE / RESCHEDULE
+                </button>
+              </>
             )}
 
             {/* Full Job Details Export Bar: PDF Download, WhatsApp Share & Print */}
